@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini Tracker</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { color-scheme: dark; }
+  html, body { height:100%; margin:0; }
+  body { display:flex; flex-direction:column; font-family:-apple-system,Roboto,sans-serif; background:#0d0d0d; color:#eee; }
+  #bar { display:flex; gap:6px; padding:8px; align-items:center; background:#1a1a2e; }
+  #map { flex:1; min-height:200px; }
+  #panel { max-height:42vh; overflow:auto; padding:8px; background:#12122a; }
+  input, button { font-size:15px; border-radius:8px; border:1px solid #334; background:#12122a; color:#eee; padding:7px 10px; }
+  button { background:#3b4cca; border:none; cursor:pointer; }
+  button.x { background:#5a2030; }
+  .dev { background:#1a1a2e; border-radius:10px; padding:8px; margin-bottom:6px; }
+  .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .sub { color:#889; font-size:12px; }
+  code { font-size:11px; word-break:break-all; color:#9ad; }
+  #add input[type=text] { flex:1; min-width:120px; }
+  input[type=color] { padding:0; width:38px; height:34px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button onclick="shift(-1)">◀</button>
+  <input type="date" id="day" onchange="fitted=false;refresh()">
+  <button onclick="shift(1)">▶</button>
+  <button onclick="goToday()">Today</button>
+  <button onclick="fit()">Fit</button>
+</div>
+<div id="map"></div>
+<div id="panel">
+  <div id="list"></div>
+  <div class="dev row" id="add">
+    <input type="text" id="newName" placeholder="New device name (Jon's iPhone)">
+    <input type="color" id="newColor" value="#3b4cca">
+    <button onclick="addDev()">Add</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let map, DEV = [], layers = {}, hidden = new Set(), openTok = new Set(), fitted = false, ALL = [];
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : undefined);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+const fmt = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+function goToday() { $('day').value = fmt(new Date()); fitted = false; refresh(); }
+function shift(n) { const d = new Date($('day').value + 'T12:00:00'); d.setDate(d.getDate() + n); $('day').value = fmt(d); fitted = false; refresh(); }
+function fit() { if (ALL.length) map.fitBounds(ALL, {padding: [40, 40]}); }
+
+function km(pts) {
+  let t = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [la1, lo1] = [pts[i-1][1], pts[i-1][2]], [la2, lo2] = [pts[i][1], pts[i][2]];
+    const r = x => x * Math.PI / 180, a = Math.sin(r(la2-la1)/2)**2 + Math.cos(r(la1)) * Math.cos(r(la2)) * Math.sin(r(lo2-lo1)/2)**2;
+    t += 12742 * Math.asin(Math.sqrt(a));
+  }
+  return t;
+}
+function ago(ts) {
+  if (!ts) return 'never';
+  const s = Date.now() / 1000 - ts;
+  return s < 90 ? 'just now' : s < 5400 ? Math.round(s / 60) + ' min ago' : s < 129600 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago';
+}
+
+async function refresh() {
+  DEV = await api('api/devices');
+  const a = Math.floor(new Date($('day').value + 'T00:00:00') / 1000), b = a + 86399;
+  const tracks = await Promise.all(DEV.map(d => api(`api/track?device=${d.id}&from=${a}&to=${b}`)));
+  Object.values(layers).forEach(l => map.removeLayer(l));
+  layers = {}; ALL = [];
+  DEV.forEach((d, i) => {
+    d.pts = tracks[i]; d.km = km(d.pts);
+    if (hidden.has(d.id) || !d.pts.length) return;
+    const g = L.layerGroup(), ll = d.pts.map(p => [p[1], p[2]]), e = ll[ll.length - 1];
+    L.polyline(ll, {color: d.color, weight: 4, opacity: .8}).addTo(g);
+    L.circleMarker(e, {radius: 9, color: '#fff', weight: 2, fillColor: d.color, fillOpacity: 1})
+      .bindTooltip(d.name, {permanent: true, direction: 'top', offset: [0, -8]}).addTo(g);
+    g.addTo(map); layers[d.id] = g; ALL.push(...ll);
+  });
+  if (ALL.length && !fitted) { fit(); fitted = true; }
+  renderList();
+}
+
+function renderList() {
+  $('list').innerHTML = DEV.map(d => `<div class="dev">
+    <div class="row"><input type="checkbox" ${hidden.has(d.id) ? '' : 'checked'} onchange="vis(${d.id},this.checked)">
+      <span class="dot" style="background:${esc(d.color)}"></span><b>${esc(d.name)}</b>
+      <span class="sub">${d.km.toFixed(1)} km · ${d.pts.length} pts that day · seen ${ago(d.last && d.last[0])}</span></div>
+    <div class="row" style="margin-top:6px">
+      <button onclick="zoom(${d.id})">Zoom</button><button onclick="edit(${d.id})">Edit</button>
+      <button class="x" onclick="del(${d.id})">Delete</button></div>
+    <details ${openTok.has(d.id) ? 'open' : ''} ontoggle="this.open ? openTok.add(${d.id}) : openTok.delete(${d.id})">
+      <summary class="sub">Token &amp; setup</summary>
+      <div class="sub">Address: <code>${esc(location.origin)}</code></div>
+      <div class="sub">Token: <code>${esc(d.token)}</code></div></details></div>`).join('')
+    || '<div class="sub">No devices yet. Add one below, then paste its token into the Find My add-on.</div>';
+}
+
+function vis(id, on) { on ? hidden.delete(id) : hidden.add(id); refresh(); }
+function zoom(id) { const d = DEV.find(x => x.id === id); if (d && d.last) map.flyTo([d.last[1], d.last[2]], 16); }
+async function addDev() {
+  const name = $('newName').value.trim();
+  if (!name) return alert('Type a name first.');
+  await api('api/devices', {name, color: $('newColor').value});
+  $('newName').value = ''; refresh();
+}
+async function edit(id) {
+  const d = DEV.find(x => x.id === id), name = prompt('Name:', d.name);
+  if (!name) return;
+  const color = prompt('Color (hex like #ff8800):', d.color) || d.color;
+  await api('api/devices/update', {id, name, color}); refresh();
+}
+async function del(id) {
+  const d = DEV.find(x => x.id === id);
+  if (!confirm('Delete ' + d.name + ' and ALL its saved locations?')) return;
+  await api('api/devices/delete', {id}); refresh();
+}
+
+(async () => {
+  const cfg = await api('api/config');
+  map = L.map('map').setView([34.5, -82.5], 10);
+  L.tileLayer(cfg.tile_url, {maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'}).addTo(map);
+  $('day').value = fmt(new Date());
+  refresh();
+  setInterval(() => { if ($('day').value === fmt(new Date())) refresh().catch(() => {}); }, 20000);
+})();
+</script>
+</body>
+</html>

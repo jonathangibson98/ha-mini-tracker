@@ -1,0 +1,11 @@
+services:
+  tracker:
+    build: .
+    restart: unless-stopped
+    ports:
+      - 8090:8090
+    environment:
+      ADMIN_PASSWORD: ""   # set a password here to protect the map and settings
+      # TILE_URL: "http://EXTRAPI-IP:PORT/{z}/{x}/{y}.png"   # optional: use your own tile cache
+    volumes:
+      - ./data:/data
