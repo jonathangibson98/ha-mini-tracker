@@ -1,1 +1,6 @@
-hi
+configuration:
+  log_level:
+    name: Log level
+    description: How much detail to write to the log. Everything else is set in the app's own Settings tab.
+network:
+  8100/tcp: Read-only map (and optional ingest API). Used for dashboard embeds and other tracking apps.
