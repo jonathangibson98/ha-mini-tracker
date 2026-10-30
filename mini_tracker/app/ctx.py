@@ -24,7 +24,7 @@ from store import Store
 
 log = logging.getLogger("mini_tracker.ctx")
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 MAX_RANGE_DAYS = 400
 
 

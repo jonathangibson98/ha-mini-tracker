@@ -18,6 +18,7 @@ DEFAULTS: dict = {
     "tiles": "osm",           # osm | carto | custom
     "tile_url": "",
     "icons_folder": "custom_icons",
+    "photo_fit": "auto",      # auto (keep the top / faces) | center | whole
     "use_ha_zones": True,
     "devices": {},            # id -> {name, color, icon, enabled}
     "places": [],             # [{id, name, lat, lon, radius, icon, color}]
@@ -91,7 +92,7 @@ class Settings:
     def public_view(self) -> dict:
         """Settings that are safe to show on the read-only map."""
         d = self.data
-        return {"units": d["units"], "theme": d["theme"], "tiles": d["tiles"],
+        return {"units": d["units"], "theme": d["theme"], "tiles": d["tiles"], "photo_fit": d["photo_fit"],
                 "tile_url": d["tile_url"] if d["tiles"] == "custom" else ""}
 
     # ------------------------------------------------------------- patching
@@ -105,6 +106,8 @@ class Settings:
                 d["theme"] = patch["theme"]
             if "tiles" in patch and patch["tiles"] in ("osm", "carto", "custom"):
                 d["tiles"] = patch["tiles"]
+            if "photo_fit" in patch and patch["photo_fit"] in ("auto", "center", "whole"):
+                d["photo_fit"] = patch["photo_fit"]
             if "tile_url" in patch:
                 u = str(patch["tile_url"]).strip()
                 d["tile_url"] = u if (u == "" or u.startswith(("http://", "https://"))) else d["tile_url"]
