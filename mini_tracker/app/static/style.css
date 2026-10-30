@@ -26,6 +26,7 @@ body.dark #map{background:#222}
 .av.emo{background:var(--card);font-size:18px}
 .av.svg{background:#fff}
 .av.svg img{object-fit:contain;padding:4px}
+.av.mdi img{width:62%;height:62%;object-fit:contain;background:none}
 
 /* map markers */
 .mk{position:relative;width:44px;text-align:center}
@@ -105,3 +106,15 @@ code{background:var(--bg);border:1px solid var(--border);border-radius:5px;paddi
 .tabular td,.tabular th{padding:4px 6px;text-align:left;border-bottom:1px solid var(--border)}
 .pb{display:flex;align-items:center;gap:8px}
 .pb .b{flex:0 0 auto}
+
+/* icon picker */
+#picker{position:fixed;inset:0;z-index:1500;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center}
+#picker .pk{background:var(--card);color:var(--text);width:100%;max-width:560px;max-height:86vh;overflow-y:auto;border-radius:14px 14px 0 0;padding:14px}
+@media(min-width:700px){#picker{align-items:center}#picker .pk{border-radius:14px}}
+.pkh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.pkgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px;margin-top:8px}
+.pki{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 4px;cursor:pointer;color:var(--text);
+  display:flex;flex-direction:column;align-items:center;gap:4px;font:inherit;min-width:0}
+.pki img{width:32px;height:32px;object-fit:contain}
+.pki span{font-size:10px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pki:active{border-color:var(--primary)}

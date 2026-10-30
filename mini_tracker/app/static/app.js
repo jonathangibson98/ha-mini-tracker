@@ -64,18 +64,42 @@ const dateStr = (d) => { const x = new Date(d); return x.getFullYear() + '-' + S
 const devById = (id) => S.devices.find((d) => d.id === id);
 const devName = (id) => (devById(id) || (SETTINGS && SETTINGS.devices[id]) || { name: id }).name;
 
-function avatarHTML(o, cls = '') {
-  const spec = o.icon || '';
-  const c = esc(o.color || '#03a9f4');
-  if (spec.startsWith('pic:')) return `<div class="av ${cls}" style="--c:${c}"><img src="api/picture/${encodeURIComponent(spec.slice(4))}" alt=""></div>`;
-  if (spec.startsWith('custom:')) {
-    const p = spec.slice(7).split('/').map(encodeURIComponent).join('/');
-    return `<div class="av svg ${cls}" style="--c:${c}"><img src="api/icon/${p}" alt=""></div>`;
+const encPath = (p) => p.split('/').map(encodeURIComponent).join('/');
+// Icon "specs" look like Home Assistant's: mdi:home, local:garage, <set>:name, pic:<file>, ha:<entity>#<ver>, or an emoji.
+function icoURL(spec, color) {
+  const m = /^([a-z0-9_-]+):(.+)$/i.exec(spec);
+  if (!m) return null;
+  const pre = m[1].toLowerCase();
+  const mdi = pre === 'mdi' || pre === 'hass';
+  return `api/ico/${encodeURIComponent(pre)}/${encPath(m[2])}` + (mdi ? `?c=${color || 'ffffff'}` : '');
+}
+function iconSrc(spec) {
+  if (spec.startsWith('pic:')) return ['photo', 'api/picture/' + encodeURIComponent(spec.slice(4))];
+  if (spec.startsWith('ha:')) {
+    const [eid, v] = spec.slice(3).split('#');
+    return ['photo', 'api/hapic/' + encodeURIComponent(eid) + (v ? '?v=' + v : '')];
   }
-  if (spec && !/^[a-z0-9_-]+:/i.test(spec)) return `<div class="av emo ${cls}" style="--c:${c}">${esc(Array.from(spec).slice(0, 2).join(''))}</div>`;
+  const u = icoURL(spec, 'ffffff');
+  if (!u) return null;
+  return [/^(mdi|hass):/i.test(spec) ? 'mdi' : 'svg', u];
+}
+function avatarHTML(o, cls = '') {
+  const spec = (o.icon || '').trim();
+  const c = esc(o.color || '#03a9f4');
   const init = (o.name || '?').trim().split(/\s+/).map((w) => Array.from(w)[0]).join('').slice(0, 2).toUpperCase();
+  const src = spec && iconSrc(spec);
+  if (src) return `<div class="av ${src[0]} ${cls}" style="--c:${c}"><img src="${esc(src[1])}" data-fb="${esc(init)}" alt=""></div>`;
+  if (spec && !/^[a-z0-9_-]+:/i.test(spec)) return `<div class="av emo ${cls}" style="--c:${c}">${esc(Array.from(spec).slice(0, 2).join(''))}</div>`;
   return `<div class="av ${cls}" style="--c:${c}">${esc(init)}</div>`;
 }
+// If an icon cannot be loaded (unknown set, deleted file, no picture), fall back to the initials.
+document.addEventListener('error', (e) => {
+  const t = e.target;
+  if (t && t.tagName === 'IMG' && t.dataset && t.dataset.fb !== undefined) {
+    const p = t.parentNode;
+    if (p) { p.classList.remove('mdi', 'svg', 'photo'); p.textContent = t.dataset.fb; }
+  }
+}, true);
 
 // ------------------------------------------------------------------ map
 const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([39.8, -98.6], 4);
@@ -505,11 +529,11 @@ function openPlaceForm(p) {
   el.innerHTML = `<div class="card"><h3 style="margin-top:0">${isNew ? 'New place' : 'Edit place'}</h3>
     <div class="row"><label>Name<input type="text" id="fn" value="${esc(p.name || '')}" maxlength="60"></label></div>
     <div class="row"><label>Radius: <span id="frv">${esc(fmtDist(p.radius || 100))}</span><input type="range" id="fr" min="25" max="1000" step="5" value="${p.radius || 100}"></label></div>
-    <div class="row"><label>Icon (emoji or custom:name)<input type="text" id="fi" value="${esc(p.icon || '')}" list="iconlist"></label>
+    <div class="row"><label>Icon (emoji, mdi:name, local:name)<input type="text" id="fi" value="${esc(p.icon || '')}"></label>
+      <button class="b sm sec" id="fpick">Pick</button>
       <label style="flex:0 0 70px">Color<input type="color" id="fc" value="${esc(p.color || '#ff9800')}"></label></div>
-    <datalist id="iconlist"></datalist>
     <div class="row"><button class="b" id="fs">Save</button><button class="b sec" id="fx">Cancel</button></div></div>`;
-  fillIconList();
+  $('#fpick').addEventListener('click', () => openPicker((spec) => { $('#fi').value = spec; }));
   const draw = () => {
     LY.tmp.clearLayers();
     L.circle([p.lat, p.lon], { radius: +$('#fr').value, color: $('#fc').value, weight: 2, fillOpacity: 0.2 }).addTo(LY.tmp);
@@ -528,10 +552,6 @@ function openPlaceForm(p) {
 }
 
 let ICONS = null;
-async function fillIconList() {
-  try { if (!ICONS) ICONS = await api('icons'); } catch (e) { return; }
-  const dl = $('#iconlist'); if (dl) dl.innerHTML = ICONS.icons.map((n) => `<option value="custom:${esc(n)}">`).join('');
-}
 
 // ---- Settings
 async function renderSettings() {
@@ -551,13 +571,14 @@ async function renderSettings() {
     <p class="muted">${cands.ha ? 'Pick which Home Assistant people / trackers to record.' : 'Home Assistant is not connected yet.'}</p>
     ${cands.candidates.map((c) => `<div class="row inline"><label><input type="checkbox" data-track="${esc(c.id)}" data-fname="${esc(c.name)}" ${c.tracked ? 'checked' : ''}> ${esc(c.name)} <span class="muted">${esc(c.id)}</span></label></div>`).join('') || '<p class="muted">No people or device trackers with GPS found.</p>'}
     <h3>Appearance</h3>
-    ${devs.map(([id, d]) => `<div class="card" data-dev="${esc(id)}"><div class="top">${avatarHTML({ ...d, name: d.name })}<b>${esc(d.name)}</b>
+    ${devs.map(([id, d]) => { const lv = devById(id) || {}; return `<div class="card" data-dev="${esc(id)}"><div class="top">${avatarHTML({ ...d, icon: lv.icon != null ? lv.icon : d.icon })}<b>${esc(d.name)}</b>
         ${id.startsWith('ext.') ? '<span class="muted">external</span>' : ''}<button class="b sm danger" data-del="${esc(id)}">Delete</button></div>
       <div class="row"><label>Name<input type="text" data-f="name" value="${esc(d.name)}"></label><label style="flex:0 0 60px">Color<input type="color" data-f="color" value="${esc(d.color)}"></label></div>
-      <div class="row"><label>Icon: emoji, <code>custom:name</code> or picture<input type="text" data-f="icon" value="${esc(d.icon || '')}" list="iconlist"></label>
-        <label style="flex:0 0 auto"><span>&nbsp;</span><span class="b sec sm" style="text-align:center;position:relative">Upload picture<input type="file" accept="image/*" data-pic="${esc(id)}" style="position:absolute;inset:0;opacity:0"></span></label></div>
-      <div class="row inline"><label><input type="checkbox" data-f="enabled" ${d.enabled ? 'checked' : ''}> Recording</label></div></div>`).join('')}
-    <datalist id="iconlist">${icons.icons.map((n) => `<option value="custom:${esc(n)}">`).join('')}</datalist>
+      <div class="row"><label>Icon (blank = use Home Assistant’s)<input type="text" data-f="icon" value="${esc(d.icon || '')}" placeholder="Auto: ${esc(iconSourceText(lv))}"></label>
+        <button class="b sm sec" data-pick="${esc(id)}">Pick</button>
+        <span class="b sec sm" style="text-align:center;position:relative">Upload picture<input type="file" accept="image/*" data-pic="${esc(id)}" style="position:absolute;inset:0;opacity:0"></span></div>
+      <div class="muted">Showing: ${esc(iconSourceText(lv))}</div>
+      <div class="row inline"><label><input type="checkbox" data-f="enabled" ${d.enabled ? 'checked' : ''}> Recording</label></div></div>`; }).join('')}
     <div class="row"><label>Add external device (for imports / other apps)<input type="text" id="newext" placeholder="e.g. Old Pixel"></label><button class="b sec" id="addext">Add</button></div>
   </div></details>
 
@@ -567,7 +588,8 @@ async function renderSettings() {
     <div class="row"><label>Map tiles<select id="s_tiles">${opt('osm', st.tiles, 'OpenStreetMap (inverted at night)')}${opt('carto', st.tiles, 'CARTO (light / dark)')}${opt('custom', st.tiles, 'Custom URL')}</select></label></div>
     <div class="row" id="s_turl_row" ${st.tiles === 'custom' ? '' : 'hidden'}><label>Tile URL<input type="text" id="s_turl" value="${esc(st.tile_url)}" placeholder="https://…/{z}/{x}/{y}.png"></label></div>
     <div class="row"><label>Custom icons folder (inside your HA config)<input type="text" id="s_icons" value="${esc(st.icons_folder)}"></label></div>
-    <p class="muted">${icons.exists ? `Found ${icons.icons.length} SVG icon${icons.icons.length === 1 ? '' : 's'} in /config/${esc(icons.folder)}. Use them as <code>custom:name</code>.` : `Folder /config/${esc(icons.folder)} does not exist.`}</p>
+    <p class="muted">${icons.exists ? `Found ${icons.icons.length} SVG icon${icons.icons.length === 1 ? '' : 's'} in /config/${esc(icons.folder)} (use <code>local:name</code> or <code>custom:name</code>).` : `Folder /config/${esc(icons.folder)} does not exist.`}</p>
+    <p class="muted">Icon sets available: ${icons.sets.map((x) => `<code>${esc(x.prefix)}:</code> ${x.count.toLocaleString()}`).join(' · ')}. Persons and zones automatically use the picture or icon Home Assistant uses for them.</p>
     <div class="row inline"><label><input type="checkbox" id="s_zones" ${st.use_ha_zones ? 'checked' : ''}> Show Home Assistant zones as places</label></div>
     <div class="row"><button class="b" id="s_save_display">Save</button></div>
   </div></details>
@@ -640,6 +662,9 @@ function bindSettings(st, stats) {
       patchDev(id, { [f]: v }).then(() => toast('Saved'));
     }));
   });
+  $$('[data-pick]', panel()).forEach((b) => b.addEventListener('click', () => openPicker(async (spec) => {
+    await patchDev(b.dataset.pick, { icon: spec }); toast(spec ? 'Icon saved' : 'Using Home Assistant’s icon'); renderSettings();
+  })));
   $$('[data-pic]', panel()).forEach((inp) => inp.addEventListener('change', async () => {
     const f = inp.files[0]; if (!f) return;
     try {
@@ -740,6 +765,53 @@ function resizeImage(file, size) {
     img.onerror = () => reject(new Error('not a valid image'));
     img.src = URL.createObjectURL(file);
   });
+}
+
+// ---- Icon picker
+function iconSourceText(d) {
+  switch (d && d.icon_source) {
+    case 'custom': return 'your own icon';
+    case 'ha-picture': return 'the picture Home Assistant uses';
+    case 'ha-icon': return 'Home Assistant icon ' + (d.icon || '');
+    default: return 'initials (Home Assistant has no picture or icon for it)';
+  }
+}
+
+function closePicker() { const o = $('#picker'); if (o) o.remove(); }
+function openPicker(onPick) {
+  closePicker();
+  const ov = document.createElement('div');
+  ov.id = 'picker';
+  ov.innerHTML = `<div class="pk"><div class="pkh"><b>Choose an icon</b><button class="b sm sec" id="pkx">Close</button></div>
+    <div class="row"><label>Search<input type="text" id="pkq" placeholder="home, garage, car…" autocomplete="off"></label>
+    <label style="flex:0 0 140px">Set<select id="pkset"><option value="">All sets</option></select></label></div>
+    <div class="row"><button class="b sm sec" id="pkauto">Use Home Assistant’s (auto)</button></div>
+    <div id="pkgrid" class="pkgrid"></div><div class="muted" id="pkmsg"></div></div>`;
+  document.body.appendChild(ov);
+  const color = S.dark ? 'ffffff' : '212121';
+  const pick = (spec) => { closePicker(); onPick(spec); };
+  $('#pkx').addEventListener('click', closePicker);
+  ov.addEventListener('click', (e) => { if (e.target === ov) closePicker(); });
+  $('#pkauto').addEventListener('click', () => pick(''));
+  api('icons').then((i) => {
+    $('#pkset').innerHTML += i.sets.map((x) => `<option value="${esc(x.prefix)}">${esc(x.prefix)} (${x.count.toLocaleString()})</option>`).join('');
+  }).catch(() => {});
+  let timer = null, seq = 0;
+  const run = async () => {
+    const my = ++seq;
+    const q = $('#pkq').value.trim(), set = $('#pkset').value;
+    try {
+      const r = await api(`icons/search?q=${encodeURIComponent(q)}&set=${encodeURIComponent(set)}&limit=120`);
+      if (my !== seq) return;
+      $('#pkgrid').innerHTML = r.results.map((spec) => `<button class="pki" data-spec="${esc(spec)}" title="${esc(spec)}"><img loading="lazy" src="${esc(icoURL(spec, color))}" alt=""><span>${esc(spec.split(':').slice(1).join(':'))}</span></button>`).join('');
+      $('#pkmsg').textContent = r.results.length ? (r.results.length >= 120 ? 'Showing the first 120. Type to narrow it down.' : '') : 'No icons match.';
+      $$('.pki', $('#pkgrid')).forEach((b) => b.addEventListener('click', () => pick(b.dataset.spec)));
+    } catch (e) { $('#pkmsg').textContent = 'Search failed: ' + e.message; }
+  };
+  $('#pkq').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 200); });
+  $('#pkset').addEventListener('change', run);
+  run();
+  $('#pkq').focus();
 }
 
 // ------------------------------------------------------------------ boot
