@@ -71,7 +71,8 @@ tests/         unit + end-to-end tests with a fake Home Assistant
 ## Credits
 
 Map rendering by [Leaflet](https://leafletjs.com) and [leaflet.heat](https://github.com/Leaflet/Leaflet.heat)
-(both bundled, BSD-2-Clause). Map tiles are served by the provider you pick in Settings
+(both bundled, BSD-2-Clause) and [Material Design Icons](https://pictogrammers.com/library/mdi/)
+(bundled, Pictogrammers Free License, see `mini_tracker/app/MDI-LICENSE.txt`). Map tiles are served by the provider you pick in Settings
 (OpenStreetMap by default, &copy; OpenStreetMap contributors).
 
 ## License
