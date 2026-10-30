@@ -90,6 +90,9 @@ Good to know:
   one falls back to initials until the app is updated.
 - Icon sets that need their own files to work (for example Font Awesome Pro or the `phu:` Hue icons) are not
   available here, and fall back to initials.
+- Pictures are cropped to fit the circle. By default the crop keeps the **top** of the photo so heads
+  are not cut off. If a picture still looks wrong, change *Settings > Display > Pictures in the circles*
+  to **Show the whole picture**.
 - SVG files keep their own colors. An SVG that is plain black will look black on the white badge.
   `mdi:` icons are drawn white on the device's color.
 - To find your Auto Custom Icons folders, the app reads Home Assistant's integration list

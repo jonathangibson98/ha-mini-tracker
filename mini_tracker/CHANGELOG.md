@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1 - 2026-10-30
+
+- Fixed pictures being cropped to the middle of the photo, which cut the top off heads in portrait
+  photos. Pictures now keep the top by default. New setting *Display > Pictures in the circles*:
+  keep the top, center crop, or show the whole picture.
+- Coordinate links are readable in dark mode.
+- Accuracy is hidden when Home Assistant reports 0.
+
 ## 1.1.0 - 2026-10-30
 
 - People and device trackers now automatically use the **picture Home Assistant has for them**
