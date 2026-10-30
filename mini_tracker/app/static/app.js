@@ -208,6 +208,8 @@ async function refresh() {
     $('#banner').hidden = d.ha || MODE === 'view';
     $('#banner').textContent = 'Not connected to Home Assistant. Retrying…';
     applyTheme();
+    document.body.classList.toggle('pf-center', S.cfg.photo_fit === 'center');
+    document.body.classList.toggle('pf-whole', S.cfg.photo_fit === 'whole');
     renderPlaces(d.places);
     S.places = d.places;
     renderDevices(d.devices);
@@ -273,7 +275,7 @@ function renderLive() {
       <div class="kv"><span class="muted">Place</span><span>${esc(d.place || 'Away')}</span></div>
       <div class="kv"><span class="muted">Updated</span><span>${d.ts ? esc(ago(d.ts)) : 'never'}</span></div>
       ${d.batt != null ? `<div class="kv"><span class="muted">Battery</span><span>${Math.round(d.batt)}%</span></div>` : ''}
-      ${d.acc != null ? `<div class="kv"><span class="muted">Accuracy</span><span>${esc(fmtDist(d.acc))}</span></div>` : ''}
+      ${d.acc ? `<div class="kv"><span class="muted">Accuracy</span><span>${esc(fmtDist(d.acc))}</span></div>` : ''}
       ${d.lat != null ? `<div class="kv"><span class="muted">Coordinates</span><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=17/${d.lat}/${d.lon}" target="_blank" rel="noopener">${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}</a></div>` : ''}
     </div>`).join('');
   panel().innerHTML = `<h3>Live</h3>${rows || '<p class="muted">No devices are tracked yet. Open <b>Settings</b> and turn some on.</p>'}
@@ -585,6 +587,7 @@ async function renderSettings() {
   <details><summary>Display</summary><div>
     <div class="row"><label>Units<select id="s_units">${opt('mi', st.units, 'Miles')}${opt('km', st.units, 'Kilometers')}</select></label>
       <label>Theme<select id="s_theme">${opt('auto', st.theme, 'Dark after sunset')}${opt('system', st.theme, 'Follow device')}${opt('light', st.theme, 'Always light')}${opt('dark', st.theme, 'Always dark')}</select></label></div>
+    <div class="row"><label>Pictures in the circles<select id="s_photo">${opt('auto', st.photo_fit, 'Keep the top (heads)')}${opt('center', st.photo_fit, 'Center crop')}${opt('whole', st.photo_fit, 'Show the whole picture')}</select></label></div>
     <div class="row"><label>Map tiles<select id="s_tiles">${opt('osm', st.tiles, 'OpenStreetMap (inverted at night)')}${opt('carto', st.tiles, 'CARTO (light / dark)')}${opt('custom', st.tiles, 'Custom URL')}</select></label></div>
     <div class="row" id="s_turl_row" ${st.tiles === 'custom' ? '' : 'hidden'}><label>Tile URL<input type="text" id="s_turl" value="${esc(st.tile_url)}" placeholder="https://…/{z}/{x}/{y}.png"></label></div>
     <div class="row"><label>Custom icons folder (inside your HA config)<input type="text" id="s_icons" value="${esc(st.icons_folder)}"></label></div>
@@ -688,7 +691,7 @@ function bindSettings(st, stats) {
 
   $('#s_tiles').addEventListener('change', (e) => { $('#s_turl_row').hidden = e.target.value !== 'custom'; });
   $('#s_save_display').addEventListener('click', async () => {
-    await api('settings', { json: { units: $('#s_units').value, theme: $('#s_theme').value, tiles: $('#s_tiles').value,
+    await api('settings', { json: { units: $('#s_units').value, theme: $('#s_theme').value, photo_fit: $('#s_photo').value, tiles: $('#s_tiles').value,
       tile_url: $('#s_turl').value, icons_folder: $('#s_icons').value, use_ha_zones: $('#s_zones').checked } });
     ICONS = null; await refresh(); toast('Saved'); renderSettings();
   });

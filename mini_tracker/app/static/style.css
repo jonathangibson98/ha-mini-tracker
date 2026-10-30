@@ -23,6 +23,9 @@ body.dark #map{background:#222}
 .av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;
   background:var(--c,#03a9f4);color:#fff;font-weight:700;font-size:15px;border:2px solid var(--c,#03a9f4);flex:0 0 auto}
 .av img{width:100%;height:100%;object-fit:cover;background:#fff}
+.av.photo img{object-position:50% 12%}                 /* auto: keep the top so heads are not cut off */
+body.pf-center .av.photo img{object-position:50% 50%}
+body.pf-whole .av.photo img{object-fit:contain;object-position:50% 50%}
 .av.emo{background:var(--card);font-size:18px}
 .av.svg{background:#fff}
 .av.svg img{object-fit:contain;padding:4px}
@@ -100,6 +103,7 @@ button.b:disabled{opacity:.5}
 details{border:1px solid var(--border);border-radius:10px;margin:8px 0;background:var(--bg)}
 details>summary{padding:10px 12px;font-weight:600;cursor:pointer}
 details>div{padding:0 12px 12px}
+a{color:var(--primary)}
 code{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:1px 5px;font-size:12px;word-break:break-all}
 .copy{cursor:pointer}
 .tabular{width:100%;border-collapse:collapse}
