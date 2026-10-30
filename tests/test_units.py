@@ -123,6 +123,9 @@ def test_settings_validation(tmp_path):
     st.patch({"units": "banana", "record": {"min_distance_m": 99999}, "tile_url": "javascript:alert(1)",
               "icons_folder": "../../etc", "devices": {"person.jon": {"name": "Jon", "color": "red"}}})
     assert st.data["units"] == "mi"
+    assert st.data["photo_fit"] == "auto" and st.public_view()["photo_fit"] == "auto"
+    st.patch({"photo_fit": "whole"}); assert st.data["photo_fit"] == "whole"
+    st.patch({"photo_fit": "stretch"}); assert st.data["photo_fit"] == "whole"      # invalid ignored
     assert st.data["record"]["min_distance_m"] == 500
     assert st.data["tile_url"] == ""
     assert st.data["icons_folder"] == "custom_icons"
