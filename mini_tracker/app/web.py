@@ -152,17 +152,56 @@ async def api_places(request: web.Request) -> web.Response:
 async def api_icons(request: web.Request) -> web.Response:
     ctx: Ctx = request.app["ctx"]
     icons = await asyncio.to_thread(ctx.list_icons)
+    sets = await asyncio.to_thread(ctx.icons.sets_summary)
     return web.json_response({"folder": ctx.settings.data["icons_folder"], "icons": icons,
-                              "exists": os.path.isdir(ctx.icons_dir())})
+                              "exists": os.path.isdir(ctx.icons_dir()), "sets": sets})
+
+
+async def api_icons_search(request: web.Request) -> web.Response:
+    ctx: Ctx = request.app["ctx"]
+    res = await asyncio.to_thread(ctx.icons.search, request.query.get("q", ""), request.query.get("set", ""),
+                                  qint(request, "limit", 80))
+    return web.json_response({"results": res})
 
 
 async def api_icon(request: web.Request) -> web.Response:
+    """Legacy route: /api/icon/<name> == <icons folder>/<name>.svg"""
     ctx: Ctx = request.app["ctx"]
     path = ctx.icon_path(request.match_info["name"])
     if not path:
         return web.Response(status=404)
     return web.FileResponse(path, headers={"Content-Type": "image/svg+xml", "Content-Security-Policy": SVG_CSP,
                                            "Cache-Control": "no-cache"})
+
+
+async def api_ico(request: web.Request) -> web.Response:
+    """Any icon by prefix + name: mdi/hass (bundled), local/custom, or an Auto Custom Icons folder."""
+    ctx: Ctx = request.app["ctx"]
+    res = await asyncio.to_thread(ctx.icons.resolve, request.match_info["prefix"], request.match_info["name"],
+                                  request.query.get("c"))
+    if not res:
+        return web.Response(status=404)
+    kind, val = res
+    headers = {"Content-Security-Policy": SVG_CSP, "Content-Type": "image/svg+xml"}
+    if kind == "svg":
+        headers["Cache-Control"] = "public, max-age=86400"
+        return web.Response(body=val, headers=headers)
+    headers["Cache-Control"] = "no-cache"
+    return web.FileResponse(val, headers=headers)
+
+
+async def api_hapic(request: web.Request) -> web.Response:
+    """The picture Home Assistant uses for a tracked person / device tracker."""
+    ctx: Ctx = request.app["ctx"]
+    dev = request.match_info["eid"]
+    if dev not in enabled_devs(ctx):
+        return web.Response(status=404)
+    got = await ctx.ha_picture(dev)
+    if not got:
+        return web.Response(status=404)
+    data, ctype = got
+    return web.Response(body=data, headers={"Content-Type": ctype, "Content-Security-Policy": SVG_CSP,
+                                            "Cache-Control": "public, max-age=3600"})
 
 
 async def api_picture(request: web.Request) -> web.Response:
@@ -501,6 +540,8 @@ def _shared_routes(app: web.Application) -> None:
     r.add_get("/api/places/stats", api_place_stats)
     r.add_get("/api/icons", api_icons)
     r.add_get("/api/icon/{name:.+}", api_icon)
+    r.add_get("/api/ico/{prefix}/{name:.+}", api_ico)
+    r.add_get("/api/hapic/{eid}", api_hapic)
     r.add_get("/api/picture/{file}", api_picture)
 
 
@@ -515,6 +556,7 @@ def make_admin_app(ctx: Ctx, public_server: "PublicServer") -> web.Application:
     r.add_get("/api/settings", api_get_settings)
     r.add_post("/api/settings", api_post_settings)
     r.add_get("/api/candidates", api_candidates)
+    r.add_get("/api/icons/search", api_icons_search)
     r.add_post("/api/places", api_place_upsert)
     r.add_delete("/api/places/{id}", api_place_delete)
     r.add_post("/api/devices", api_device_create)

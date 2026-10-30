@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -14,6 +15,7 @@ import aiohttp
 
 import geo
 from ha import HAClient, day_chunks
+from iconbook import IconBook
 from importers import iter_fixes
 from mqtt_pub import MqttPublisher
 from recorder import Recorder
@@ -22,7 +24,7 @@ from store import Store
 
 log = logging.getLogger("mini_tracker.ctx")
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 MAX_RANGE_DAYS = 400
 
 
@@ -45,6 +47,8 @@ class Ctx:
         self.ha = HAClient(ha_base, token, self.on_ha_fix)
         self.ha.tracked = self.tracked_ha
         self.mqtt = MqttPublisher()
+        self.icons = IconBook(ha_config_dir, lambda: self.settings.data["icons_folder"])
+        self._pic_cache: dict[str, tuple[float, bytes, str]] = {}
         self.jobs: dict[str, dict] = {}
         self._mqtt_last: dict[str, float] = {}
         self.recorder.listeners.append(self.on_live_change)
@@ -77,6 +81,19 @@ class Ctx:
             out += [z for z in self.ha.zones() if not z.get("passive")]
         return out
 
+    def resolve_icon(self, dev: str, cfg: dict) -> tuple[str, str]:
+        """What to show for a device: your override, else HA's picture, else HA's icon."""
+        explicit = (cfg.get("icon") or "").strip()
+        if explicit:
+            return explicit, "custom"
+        a = (self.ha.states.get(dev) or {}).get("attributes") or {}
+        pic = a.get("entity_picture")
+        if pic:
+            return f"ha:{dev}#{hashlib.md5(str(pic).encode()).hexdigest()[:8]}", "ha-picture"
+        if a.get("icon"):
+            return str(a["icon"]), "ha-icon"
+        return "", "none"
+
     def devices_view(self) -> list[dict]:
         places = self.all_places()
         out = []
@@ -84,7 +101,8 @@ class Ctx:
             if not cfg.get("enabled"):
                 continue
             fix = self.recorder.live.get(dev)
-            item = {"id": dev, "name": cfg["name"], "color": cfg["color"], "icon": cfg.get("icon", ""),
+            icon, src = self.resolve_icon(dev, cfg)
+            item = {"id": dev, "name": cfg["name"], "color": cfg["color"], "icon": icon, "icon_source": src,
                     "external": dev.startswith("ext.")}
             if fix:
                 pl = geo.match_place(fix["lat"], fix["lon"], places, slack_m=25)
@@ -93,27 +111,65 @@ class Ctx:
             out.append(item)
         return out
 
+    async def ha_picture(self, dev: str) -> tuple[bytes, str] | None:
+        """The picture Home Assistant uses for a tracked entity (person photo etc.), proxied safely.
+
+        The URL is always taken from HA's own state for that entity, never from the browser.
+        """
+        a = (self.ha.states.get(dev) or {}).get("attributes") or {}
+        pic = str(a.get("entity_picture") or "")
+        if not pic:
+            return None
+        hit = self._pic_cache.get(pic)
+        if hit and time.time() - hit[0] < 600:
+            return hit[1], hit[2]
+        data: bytes | None = None
+        ctype = ""
+        limit = 3_000_000
+        try:
+            if pic.startswith("/local/"):
+                root = os.path.realpath(os.path.join(self.ha_config_dir, "www"))
+                full = os.path.realpath(os.path.join(root, pic[len("/local/"):].split("?")[0]))
+                if full.startswith(root + os.sep) and os.path.isfile(full) and os.path.getsize(full) <= limit:
+                    data = await asyncio.to_thread(lambda: open(full, "rb").read())
+                    ctype = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp",
+                             "gif": "image/gif", "svg": "image/svg+xml"}.get(full.rsplit(".", 1)[-1].lower(), "")
+            elif pic.startswith("/api/") or pic.startswith(("http://", "https://")):
+                session = await self.ha._ensure_session()
+                if pic.startswith("/api/"):
+                    url, headers = f"{self.ha.base_url}{pic}", self.ha.headers
+                else:
+                    url, headers = pic, {}
+                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                    if r.status == 200:
+                        data = await r.content.read(limit + 1)
+                        ctype = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                        if len(data) > limit:
+                            data = None
+        except Exception as exc:  # noqa: BLE001
+            log.debug("picture fetch failed for %s: %s", dev, exc)
+            data = None
+        if not data:
+            return None
+        if not ctype.startswith("image/"):          # sniff when the server was vague
+            ctype = ("image/png" if data[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg" if data[:3] == b"\xff\xd8\xff"
+                     else "image/webp" if data[:4] == b"RIFF" and data[8:12] == b"WEBP" else "")
+            if not ctype:
+                return None
+        if len(self._pic_cache) > 40:
+            self._pic_cache.clear()
+        self._pic_cache[pic] = (time.time(), data, ctype)
+        return data, ctype
+
     # ---------------------------------------------------------------- icons
     def icons_dir(self) -> str:
         return os.path.join(self.ha_config_dir, self.settings.data["icons_folder"])
 
     def list_icons(self) -> list[str]:
-        root = self.icons_dir()
-        names = []
-        for dp, dn, fn in os.walk(root):
-            dn[:] = [d for d in dn if not d.startswith(".")]
-            for f in fn:
-                if f.endswith(".svg") and not f.startswith("."):
-                    rel = os.path.relpath(os.path.join(dp, f), root).replace(os.sep, "/")
-                    names.append(rel[:-4])
-        return sorted(names)
+        return self.icons.folder_icons("local")
 
     def icon_path(self, name: str) -> str | None:
-        root = os.path.realpath(self.icons_dir())
-        full = os.path.realpath(os.path.join(root, name + ".svg"))
-        if not full.startswith(root + os.sep) or not os.path.isfile(full):
-            return None
-        return full
+        return self.icons.folder_path("local", name)
 
     def picture_path(self, fname: str) -> str | None:
         if not re.fullmatch(r"[A-Za-z0-9_\-]{1,60}\.(png|jpg|jpeg|webp)", fname):
