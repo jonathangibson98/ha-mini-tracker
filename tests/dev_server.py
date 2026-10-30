@@ -14,8 +14,8 @@ async def main(admin_port, public_port):
     open(os.path.join(cfg, "custom_icons", "garage.svg"), "w").write('<svg viewBox="0 0 24 24"><path d="M2 8l10-6 10 6v14H2z" fill="#f00"/></svg>')
     now = int(time.time()); HOME=(40.0,-75.0); WORK=(40.05,-75.0)
     fake = FakeHA({
-        "person.jon": person("person.jon", "Jon", HOME[0], HOME[1], now),
-        "person.mj": person("person.mj", "MJ", WORK[0], WORK[1], now),
+        "person.jon": person("person.jon", "Jon", HOME[0], HOME[1], now, entity_picture="/api/image/serve/abc/512x512"),
+        "person.mj": person("person.mj", "MJ", WORK[0], WORK[1], now, icon="mdi:account-heart"),
         "zone.home": {"entity_id":"zone.home","state":"0","last_updated":iso(now),"last_changed":iso(now),
                       "attributes":{"friendly_name":"Home","latitude":HOME[0],"longitude":HOME[1],"radius":120,"icon":"mdi:home"}},
         "sun.sun": {"entity_id":"sun.sun","state":"below_horizon","last_updated":iso(now),"last_changed":iso(now),"attributes":{}}})
@@ -29,7 +29,7 @@ async def main(admin_port, public_port):
     t+=20*60
     for i in range(1,15): rows.append(("person.jon", t+i*300, WORK[0], WORK[1], 5, 80, "seed"))
     ctx.store.insert_many(rows)
-    ctx.settings.patch({"devices": {"person.jon": {"name":"Jon","icon":"custom:garage"}, "person.mj": {"name":"MJ","icon":"🦋"}}})
+    ctx.settings.patch({"devices": {"person.jon": {"name":"Jon"}, "person.mj": {"name":"MJ"}}})
     await ctx.recorder.warm_up()
     asyncio.create_task(ctx.ha.run()); asyncio.create_task(ctx.first_run())
     pub = PublicServer(ctx, public_port)

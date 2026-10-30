@@ -131,3 +131,44 @@ def test_settings_validation(tmp_path):
     assert p["radius"] == 5000
     st2 = Settings(os.path.join(str(tmp_path), "s.json"))   # persisted
     assert len(st2.data["places"]) == 1
+
+
+def test_iconbook_mdi_folders_and_search(tmp_path):
+    import json as _j
+    from iconbook import IconBook
+    cfg = str(tmp_path)
+    os.makedirs(os.path.join(cfg, "custom_icons", "rooms"))
+    os.makedirs(os.path.join(cfg, "my_icons"))
+    os.makedirs(os.path.join(cfg, ".storage"))
+    open(os.path.join(cfg, "custom_icons", "garage.svg"), "w").write("<svg/>")
+    open(os.path.join(cfg, "custom_icons", "rooms", "kitchen.svg"), "w").write("<svg/>")
+    open(os.path.join(cfg, "my_icons", "star.svg"), "w").write("<svg/>")
+    open(os.path.join(cfg, "secret.svg"), "w").write("<svg/>")
+    entries = {"data": {"entries": [
+        {"domain": "auto_custom_icons", "data": {"folder": "my_icons", "prefix": "my_icons"}},
+        {"domain": "auto_custom_icons", "data": {"folder": "../etc", "prefix": "evil"}},       # rejected
+        {"domain": "auto_custom_icons", "data": {"folder": "x", "prefix": "mdi"}},             # reserved prefix
+        {"domain": "mqtt", "data": {"password": "hunter2", "folder": "nope", "prefix": "nope"}}]}}
+    _j.dump(entries, open(os.path.join(cfg, ".storage", "core.config_entries"), "w"))
+
+    ib = IconBook(cfg, lambda: "custom_icons")
+    assert ib.mdi_count() > 7000 and ib.mdi_path("home").startswith("M")
+    assert ib.mdi_path("HOME") == ib.mdi_path("home")
+    kind, svg = ib.resolve("mdi", "home", "ff0000"); assert kind == "svg" and b'fill="#ff0000"' in svg
+    kind, svg = ib.resolve("hass", "home", "not-a-colour"); assert b'fill="#000000"' in svg      # bad colour -> default
+    assert ib.resolve("mdi", "definitely-not-an-icon", None) is None
+    # both prefixes read the icons folder; subfolders work
+    for pre in ("local", "custom"):
+        assert ib.resolve(pre, "garage", None)[0] == "file"
+        assert ib.resolve(pre, "rooms/kitchen", None)[0] == "file"
+    # Auto Custom Icons folders are discovered from HA's config entries, other integrations' data is ignored
+    assert ib.resolve("my_icons", "star", None)[0] == "file"
+    assert ib.resolve("evil", "x", None) is None and ib.resolve("nope", "x", None) is None
+    # traversal
+    for bad in ("../secret", "rooms/../../secret", "..", "/etc/passwd"):
+        assert ib.resolve("local", bad, None) is None, bad
+    sets = {s["prefix"]: s["count"] for s in ib.sets_summary()}
+    assert sets["local"] == 2 and sets["my_icons"] == 1 and "custom" not in sets and sets["mdi"] > 7000
+    r = ib.search("home", "mdi", 20); assert r[0] == "mdi:home" and len(r) == 20
+    assert "local:garage" in ib.search("gar", "", 50) and "my_icons:star" in ib.search("star", "all", 50)
+    assert ib.search("kitchen", "local") == ["local:rooms/kitchen"]

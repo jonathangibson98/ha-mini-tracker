@@ -11,6 +11,12 @@ HOME = (40.0000, -75.0000)
 WORK = (40.0500, -75.0000)
 
 
+def jonp(lat, lon, ts, **extra):
+    """Jon's state as HA would send it: same picture + icon attributes on every update."""
+    extra.setdefault("entity_picture", "/api/image/serve/abc/512x512"); extra.setdefault("icon", "mdi:account")
+    return person("person.jon", "Jon", lat, lon, ts, **extra)
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -29,14 +35,19 @@ async def scenario(tmp):
     os.makedirs(os.path.join(cfg, "custom_icons", "rooms"))
     open(os.path.join(cfg, "custom_icons", "garage.svg"), "w").write('<svg viewBox="0 0 24 24"><path d="M0 0"/></svg>')
     open(os.path.join(tmp, "secret.svg"), "w").write("<svg/>")
+    os.makedirs(os.path.join(cfg, "my_icons")); os.makedirs(os.path.join(cfg, ".storage")); os.makedirs(os.path.join(cfg, "www"))
+    open(os.path.join(cfg, "my_icons", "star.svg"), "w").write('<svg viewBox="0 0 24 24"><path d="M1 1"/></svg>')
+    open(os.path.join(cfg, ".storage", "core.config_entries"), "w").write(json.dumps({"data": {"entries": [
+        {"domain": "auto_custom_icons", "data": {"folder": "my_icons", "prefix": "my_icons"}}]}}))
+    open(os.path.join(cfg, "www", "pic.png"), "wb").write(b"\x89PNG\r\n\x1a\n" + b"1" * 20)
 
     hist_states = [person("person.jon", "Jon", HOME[0] + i * 1e-4, HOME[1], T0 - 86400 + i * 300) for i in range(30)]
     fake = FakeHA({
-        "person.jon": person("person.jon", "Jon", HOME[0], HOME[1], T0),
-        "person.mj": person("person.mj", "MJ", WORK[0], WORK[1], T0),
+        "person.jon": person("person.jon", "Jon", HOME[0], HOME[1], T0, entity_picture="/api/image/serve/abc/512x512", icon="mdi:account"),
+        "person.mj": person("person.mj", "MJ", WORK[0], WORK[1], T0, icon="mdi:account-heart"),
         "device_tracker.pixel": person("device_tracker.pixel", "Pixel", 41, -75, T0),
         "zone.home": {"entity_id": "zone.home", "state": "0", "last_updated": iso(T0), "last_changed": iso(T0),
-                      "attributes": {"friendly_name": "Home", "latitude": HOME[0], "longitude": HOME[1], "radius": 120}},
+                      "attributes": {"friendly_name": "Home", "latitude": HOME[0], "longitude": HOME[1], "radius": 120, "icon": "mdi:home"}},
         "sun.sun": {"entity_id": "sun.sun", "state": "below_horizon", "last_updated": iso(T0), "last_changed": iso(T0), "attributes": {}},
     }, history={"person.jon": hist_states})
     await fake.start()
@@ -68,13 +79,13 @@ async def scenario(tmp):
         # a drive from home to work, pushed as HA state_changed events (with a stationary period each end)
         t = T0 + 600
         for i in range(8):   # at home 40 min
-            await fake.push(person("person.jon", "Jon", HOME[0], HOME[1] + 1e-5 * i, t + i * 300)); 
+            await fake.push(jonp(HOME[0], HOME[1] + 1e-5 * i, t + i * 300)); 
         t += 8 * 300
         for i in range(1, 11):
-            await fake.push(person("person.jon", "Jon", HOME[0] + (WORK[0] - HOME[0]) * i / 10, HOME[1], t + i * 60))
+            await fake.push(jonp(HOME[0] + (WORK[0] - HOME[0]) * i / 10, HOME[1], t + i * 60))
         t += 10 * 60
         for i in range(1, 9):
-            await fake.push(person("person.jon", "Jon", WORK[0], WORK[1], t + i * 300))
+            await fake.push(jonp(WORK[0], WORK[1], t + i * 300))
         t += 8 * 300
         assert await wait_for(lambda: ctx.recorder.live["person.jon"]["ts"] == t)
         await asyncio.sleep(0.2)
@@ -159,6 +170,56 @@ async def scenario(tmp):
         for fmt, needle in (("gpx", "<trkpt"), ("csv", "timestamp,iso_time"), ("json", '"lat"')):
             r = await admin.get(f"/api/export?dev=ext.old_phone&fmt={fmt}")
             assert r.status == 200 and needle in await r.text()
+
+
+        # ---- icons / pictures follow Home Assistant
+        st = await (await admin.get("/api/state")).json()
+        jon = next(d for d in st["devices"] if d["id"] == "person.jon")
+        mj = next(d for d in st["devices"] if d["id"] == "person.mj")
+        assert jon["icon"].startswith("ha:person.jon#") and jon["icon_source"] == "ha-picture"   # picture beats icon
+        assert mj["icon"] == "mdi:account-heart" and mj["icon_source"] == "ha-icon"
+        home_zone = next(p for p in st["places"] if p["id"] == "zone.home")
+        assert home_zone["icon"] == "mdi:home"
+        r = await admin.get("/api/hapic/person.jon")
+        assert r.status == 200 and r.headers["Content-Type"] == "image/png" and (await r.read()).startswith(b"\x89PNG")
+        hits = fake.image_hits
+        await admin.get("/api/hapic/person.jon"); assert fake.image_hits == hits      # cached, not re-fetched each time
+        assert (await admin.get("/api/hapic/person.mj")).status == 404                 # no picture
+        assert (await admin.get("/api/hapic/person.ghost")).status == 404              # unknown / untracked
+        assert (await public.get("/api/hapic/person.jon")).status == 200               # read-only page can show it too
+        # explicit choice in Mini Tracker beats Home Assistant's
+        await admin.post("/api/settings", json={"devices": {"person.jon": {"icon": "mdi:car"}}})
+        jon = next(d for d in (await (await admin.get("/api/state")).json())["devices"] if d["id"] == "person.jon")
+        assert jon["icon"] == "mdi:car" and jon["icon_source"] == "custom"
+        await admin.post("/api/settings", json={"devices": {"person.jon": {"icon": ""}}})   # back to auto
+        # HA picture changes -> new version tag so browsers refetch
+        before = jon  # noqa: F841
+        await fake.push(jonp(HOME[0], HOME[1], int(time.time()) - 5, entity_picture="/api/image/serve/NEW/512x512"))
+        await asyncio.sleep(0.2)
+        jon2 = next(d for d in (await (await admin.get("/api/state")).json())["devices"] if d["id"] == "person.jon")
+        assert jon2["icon"].startswith("ha:person.jon#")
+        # /local/ pictures come from /config/www, and cannot escape it
+        ctx.ha.states["person.jon"]["attributes"]["entity_picture"] = "/local/pic.png"; ctx._pic_cache.clear()
+        assert (await ctx.ha_picture("person.jon"))[1] == "image/png"
+        for evil in ("/local/../secret.svg", "/local/../../etc/passwd", "file:///etc/passwd", "/etc/passwd"):
+            ctx.ha.states["person.jon"]["attributes"]["entity_picture"] = evil; ctx._pic_cache.clear()
+            assert await ctx.ha_picture("person.jon") is None, evil
+        ctx.ha.states["person.jon"]["attributes"]["entity_picture"] = "/api/image/serve/abc/512x512"; ctx._pic_cache.clear()
+
+        # unified icon endpoint: mdi, legacy alias, your icons folder (local: and custom:), Auto Custom Icons folders
+        r = await admin.get("/api/ico/mdi/home?c=ff0000"); body = await r.text()
+        assert r.status == 200 and 'fill="#ff0000"' in body and r.headers["Content-Type"] == "image/svg+xml"
+        assert "sandbox" in r.headers["Content-Security-Policy"]
+        assert (await admin.get("/api/ico/hass/home")).status == 200
+        assert (await admin.get("/api/ico/local/garage")).status == 200 and (await admin.get("/api/ico/custom/garage")).status == 200
+        assert (await admin.get("/api/ico/my_icons/star")).status == 200
+        assert (await public.get("/api/ico/mdi/account")).status == 200
+        for bad in ("/api/ico/nope/x", "/api/ico/mdi/not-a-real-icon", "/api/ico/local/..%2f..%2fsecret", "/api/ico/local/rooms%2f..%2f..%2fsecret"):
+            assert (await admin.get(bad)).status == 404, bad
+        sr = await (await admin.get("/api/icons/search?q=garage")).json()
+        assert "local:garage" in sr["results"] and any(x.startswith("mdi:garage") for x in sr["results"])
+        ic = await (await admin.get("/api/icons")).json()
+        assert {s["prefix"] for s in ic["sets"]} >= {"mdi", "local", "my_icons"}
 
         # ---- icons + traversal protection
         ic = await (await admin.get("/api/icons")).json()

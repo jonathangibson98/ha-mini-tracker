@@ -8,10 +8,13 @@ def iso(ts):
     return datetime.fromtimestamp(ts, timezone.utc).isoformat()
 
 
-def person(eid, name, lat, lon, ts, state="home", acc=10, batt=80):
+def person(eid, name, lat, lon, ts, state="home", acc=10, batt=80, **extra):
     return {"entity_id": eid, "state": state, "last_updated": iso(ts), "last_changed": iso(ts),
             "attributes": {"friendly_name": name, "latitude": lat, "longitude": lon, "gps_accuracy": acc,
-                           "battery_level": batt}}
+                           "battery_level": batt, **extra}}
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
 
 
 class FakeHA:
@@ -22,6 +25,8 @@ class FakeHA:
         self.app = web.Application()
         self.app.router.add_get("/core/websocket", self.ws)
         self.app.router.add_get("/core/api/history/period/{start}", self.hist)
+        self.app.router.add_get("/core/api/image/serve/{id}/{size}", self.image)
+        self.image_hits = 0
         self.runner = None
         self.port = None
 
@@ -51,6 +56,12 @@ class FakeHA:
         for ws in self.sockets:
             await ws.send_json({"id": 3, "type": "event", "event": {"event_type": "state_changed",
                                 "data": {"entity_id": state["entity_id"], "new_state": state}}})
+
+    async def image(self, request):
+        if request.headers.get("Authorization") != "Bearer t":
+            return web.Response(status=401)
+        self.image_hits += 1
+        return web.Response(body=PNG, content_type="image/png")
 
     async def hist(self, request):
         ids = request.query.get("filter_entity_id", "").split(",")
