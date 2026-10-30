@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 - 2026-10-30
+
+- People and device trackers now automatically use the **picture Home Assistant has for them**
+  (person photo), or else the **icon Home Assistant has for them** (for example `mdi:account-heart`).
+  Zones show their Home Assistant icon too. Changes in Home Assistant show up on the map by themselves.
+- Every icon set you have is usable: all ~7,400 **MDI** icons (`mdi:` and the old `hass:`, bundled, works
+  offline), your `custom_icons` folder as **`local:`** (and `custom:`), and any folder you added with
+  **Auto Custom Icons** (found automatically, used as `<your prefix>:name`).
+- New **icon picker** with search across all sets, in Settings (people) and in the place editor.
+- Icons that cannot be loaded fall back to initials instead of a broken image.
+- Your own choice in Mini Tracker still wins; leave the icon blank to follow Home Assistant.
+
 ## 1.0.0 - 2026-10-29
 
 First release.

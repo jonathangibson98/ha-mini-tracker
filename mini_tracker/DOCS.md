@@ -55,20 +55,48 @@ Home Assistant zones. **Time at places** totals how long a device spent at each 
 
 **Settings**: devices, display, recording, data tools, and integrations.
 
-## Your own icons and pictures
+## Icons and pictures
 
-For each person or place you can use:
+**By default Mini Tracker uses whatever Home Assistant uses**, so it looks right without setup:
 
-- **A picture**: *Settings > Tracked devices > Upload picture*. It is cropped to a square and
-  shrunk to 128 px.
-- **An emoji**: type one into the icon field.
-- **A custom SVG**: type `custom:name` to use `name.svg` from your icons folder. The default
-  folder is `/config/custom_icons` (change it under *Settings > Display*). Subfolders work:
-  `custom:rooms/kitchen`. The icon field offers your icons as suggestions, and the settings
-  page tells you how many SVGs it found.
+| For | It shows |
+| --- | --- |
+| A person or device tracker | The picture Home Assistant has for it (for example a person's photo), otherwise its Home Assistant icon (for example `mdi:account-heart`), otherwise initials |
+| A Home Assistant zone | The zone's icon (for example `mdi:home`) |
+| A place you add here | The icon you pick, otherwise initials |
 
-The app only has **read-only** access to your config folder, and only reads `.svg` files from
-the icons folder.
+If you change a person's picture or an icon in Home Assistant, the map follows within a few seconds.
+A person or zone with no picture or icon shows initials.
+
+**To override it**, open *Settings > Tracked devices*, find the device, and use **Pick**, type an
+icon, or **Upload picture**. Leave the field blank (or press **Use Home Assistant's (auto)** in the
+picker) to go back to following Home Assistant.
+
+### Icon sets you can use
+
+| Prefix | What it is |
+| --- | --- |
+| `mdi:` and `hass:` | All Material Design Icons (about 7,400, built in, works offline). `hass:` is the old name for `mdi:` |
+| `local:` and `custom:` | The SVG files in your icons folder, `/config/custom_icons` by default (change it under *Settings > Display*). Subfolders work: `local:rooms/kitchen`. This is the same folder the *Custom Icons* integration uses |
+| `<your prefix>:` | Each folder you added with the **Auto Custom Icons** integration, found automatically. A folder `my_icons` with prefix `my_icons` gives `my_icons:garage` |
+| an emoji | Type one into the icon field |
+| a picture | *Upload picture* (cropped to a square, 128 px) |
+
+The **Pick** button opens a search across every set at once, with your own icons listed first.
+
+Good to know:
+
+- MDI is bundled at version 7.4.47. If Home Assistant has a newer icon that is not in this version, that
+  one falls back to initials until the app is updated.
+- Icon sets that need their own files to work (for example Font Awesome Pro or the `phu:` Hue icons) are not
+  available here, and fall back to initials.
+- SVG files keep their own colors. An SVG that is plain black will look black on the white badge.
+  `mdi:` icons are drawn white on the device's color.
+- To find your Auto Custom Icons folders, the app reads Home Assistant's integration list
+  (`/config/.storage/core.config_entries`, read-only) and picks out only the Auto Custom Icons entries.
+  Nothing else in that file is used or stored.
+- The app has read-only access to your config folder. Person pictures come from Home Assistant itself
+  (or `/config/www` for `/local/...` pictures).
 
 ## Dark mode
 
@@ -186,9 +214,10 @@ ticked. If the page says it is not connected to Home Assistant, check the app lo
 **A device never updates.** Mini Tracker only sees what Home Assistant sees. Check that the
 entity itself updates in *Developer tools > States* and has `latitude` and `longitude`.
 
-**My custom icon is blank.** Open *Settings > Display* and read the line under the icons
-folder: it says how many SVGs were found. Check the folder name and that the file is
-`name.svg`, then use `custom:name`.
+**An icon is blank or shows initials.** Open *Settings > Display*: it says how many SVGs were found in
+your icons folder and lists every icon set that is available. Check the prefix (`mdi:`, `local:`, or your
+Auto Custom Icons prefix) and the file name (`name.svg` is `local:name`). Use **Pick** to see exactly what
+exists.
 
 **The dashboard iframe is blank.** Usually the https/http mix described above. Test the 8100
 URL in its own browser tab first.

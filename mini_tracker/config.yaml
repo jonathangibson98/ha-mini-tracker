@@ -1,5 +1,5 @@
 name: "Mini Tracker"
-version: "1.0.0"
+version: "1.1.0"
 slug: "mini_tracker"
 description: "Lightweight location history map: trails, playback, stops, places, heatmap. Uses your HA people and trackers."
 url: "https://github.com/jonathangibson98/ha-mini-tracker"
